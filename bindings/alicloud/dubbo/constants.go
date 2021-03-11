@@ -1,9 +1,9 @@
-package constants
+package dubbo
 
 const (
 	SERIALIZE_TYPE_KEY = "_SERIALIZETYPE"
 )
-// rpc
+
 const (
 	MetadataRpcGroup             = "rpc-group"
 	MetadataRpcVersion           = "rpc-version"

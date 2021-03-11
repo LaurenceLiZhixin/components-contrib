@@ -3,13 +3,12 @@ package dubbo
 import (
 	"bytes"
 	"context"
-	constant2 "github.com/dapr/components-contrib/bindings/alicloud/dubbo/constants"
 	"strconv"
 	"strings"
 
 	"github.com/apache/dubbo-go/common/constant"
 
-	"github.com/dapr/components-contrib/bindings/alicloud/dubbo/logger"
+	"github.com/dapr/dapr/pkg/logger"
 
 	"github.com/dapr/components-contrib/bindings"
 	perrors "github.com/pkg/errors"
@@ -23,17 +22,19 @@ import (
 	_ "github.com/apache/dubbo-go/registry/nacos"
 	_ "github.com/apache/dubbo-go/registry/protocol"
 	_ "github.com/apache/dubbo-go/registry/zookeeper"
-	"github.com/dapr/components-contrib/bindings/alicloud/dubbo/constants"
 )
 
+// DUBBOOutputBinding is impl of OutputBinding
 type DUBBOOutputBinding struct {
-	created bool
-	logger  logger.Logger
-	timeout int64
+	created  bool
+	logger   logger.Logger
+	timeout  int64
+	metadata bindings.Metadata
 }
 
 var dubboBinding *DUBBOOutputBinding
 
+// NewDUBBOOutput returns new DUBBOOutputBinding
 func NewDUBBOOutput(logger logger.Logger) *DUBBOOutputBinding {
 	if dubboBinding != nil && dubboBinding.created {
 		return dubboBinding
@@ -45,8 +46,8 @@ func NewDUBBOOutput(logger logger.Logger) *DUBBOOutputBinding {
 	return dubboBinding
 }
 
+// Init init DUBBOOutputBinding from @metadata
 func (out *DUBBOOutputBinding) Init(metadata bindings.Metadata) error {
-	//var appName = "dapr-sidecar"
 	var (
 		subscriberServices = metadata.Properties["subscribers"]
 		timeout            = metadata.Properties["timeout"]
@@ -70,35 +71,40 @@ func (out *DUBBOOutputBinding) Init(metadata bindings.Metadata) error {
 		interfaceName, version, group := recoverKey(v)
 		dubboSubscriber.appendGenericAndProxyService(interfaceName, version, group, false)
 	}
+	out.metadata = metadata
 	return nil
 }
 
 // The key named `_serialize` of InvokeRequest.Metadata means that it is have been serialized
+// Invoke try to call dubbo invoker with bytes data, the invoker should be cached by dubbo subscriber
 func (out *DUBBOOutputBinding) Invoke(req *bindings.InvokeRequest) (*bindings.InvokeResponse, error) {
 	var (
 		finalResult *bindings.InvokeResponse
 		err         error
 		result      []byte
 	)
-	group := req.Metadata[constants.MetadataRpcGroup]
-	interfaceName := req.Metadata[constants.MetadataRpcInterface]
-	version := req.Metadata[constants.MetadataRpcVersion]
-	methodName := req.Metadata[constants.MetadataRpcMethodName]
-	argTypes := req.Metadata[constants.MetadataRpcMethodParamTypes]
+
+	// get dubbo invocation params form req
+	group := req.Metadata[MetadataRpcGroup]
+	interfaceName := req.Metadata[MetadataRpcInterface]
+	version := req.Metadata[MetadataRpcVersion]
+	methodName := req.Metadata[MetadataRpcMethodName]
+	argTypes := req.Metadata[MetadataRpcMethodParamTypes]
+
 	if !out.checkParam(interfaceName, group, version, methodName) {
 		return nil, perrors.New("the param is illegal.")
 	}
-	if req.Metadata[constants.MetadataRpcPassThrough] == "true" {
+	if req.Metadata[MetadataRpcPassThrough] == "true" {
 		attachments := make(map[string]interface{}, 4)
-		serializerName := req.Metadata[constants.MetadataRpcSerializationType]
+		serializerName := req.Metadata[MetadataRpcSerializationType]
 		if len(serializerName) == 0 {
 			return nil, perrors.New("the serializer type is invalid")
 		}
-		attachments[constant2.SERIALIZE_TYPE_KEY] = serializerName
+		attachments[SERIALIZE_TYPE_KEY] = serializerName
 
-		context := context.WithValue(context.Background(), constant.AttachmentKey, attachments)
+		// set attachments to new context
+		ctx := context.WithValue(context.Background(), constant.AttachmentKey, attachments)
 
-		//var argumentType []byte
 		var argumentTypeArray []string
 		if len(argTypes) != 0 {
 			argumentTypeArray = strings.Split(argTypes, ",")
@@ -106,8 +112,8 @@ func (out *DUBBOOutputBinding) Invoke(req *bindings.InvokeRequest) (*bindings.In
 			argumentTypeArray = make([]string, 0)
 		}
 
-		// 默认false
-		if req.Metadata[constants.MetadataRpcGeneric] == "false" {
+		// false default
+		if req.Metadata[MetadataRpcGeneric] == "false" {
 			proxyService := dubboSubscriber.getProxyService(interfaceName, version, group) //proxyService left
 			var data [][]byte
 			if data, err = convertDataProtocol(req.Data); err != nil {
@@ -116,7 +122,7 @@ func (out *DUBBOOutputBinding) Invoke(req *bindings.InvokeRequest) (*bindings.In
 			if data == nil {
 				data = [][]byte{}
 			}
-			if result, err = proxyService.ProxyInvokeWithBytes(context, methodName, argumentTypeArray, data); err != nil {
+			if result, err = proxyService.ProxyInvokeWithBytes(ctx, methodName, argumentTypeArray, data); err != nil {
 				finalResult = &bindings.InvokeResponse{}
 				return finalResult, err
 			}
@@ -129,7 +135,7 @@ func (out *DUBBOOutputBinding) Invoke(req *bindings.InvokeRequest) (*bindings.In
 	return finalResult, err
 }
 
-func (out*DUBBOOutputBinding)checkParam(interfaceName, group, version, methodName string) bool {
+func (out *DUBBOOutputBinding) checkParam(interfaceName, group, version, methodName string) bool {
 	if len(interfaceName) == 0 || len(group) == 0 || len(version) == 0 || len(methodName) == 0 {
 		out.logger.Warnf("the param is illegal. %s %s:%s %s", group, interfaceName, group, methodName)
 		return false
@@ -165,4 +171,3 @@ func convertDataProtocol(data []byte) ([][]byte, error) {
 	}
 	return d, nil
 }
-

@@ -1,3 +1,8 @@
+// ------------------------------------------------------------
+// Copyright (c) Microsoft Corporation and Dapr Contributors.
+// Licensed under the MIT License.
+// ------------------------------------------------------------
+
 package dubbo
 
 import (
@@ -8,9 +13,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-// the priority :
-// 1. get from Parameters directly
-// 2. get from args
+// SerializedArgTypes get java type from golang @parameters and @args
 func SerializedArgTypes(args []interface{}, parameters []string, generic bool) ([][]byte, error) {
 	if generic {
 		return [][]byte{[]byte("java.lang.String"), []byte("[Ljava.lang.String;"), []byte("[Ljava.lang.Object;")}, nil
@@ -38,6 +41,7 @@ func SerializedArgTypes(args []interface{}, parameters []string, generic bool) (
 	return types, nil
 }
 
+// javaType get java type name form @v
 func javaType(v interface{}) string {
 	if v == nil {
 		return "V"

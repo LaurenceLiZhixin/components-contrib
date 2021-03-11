@@ -1,14 +1,15 @@
 package dubbo
 
 import (
-	"context"
-	dubboCommon "github.com/apache/dubbo-go/common"
 	"sync"
 	"time"
 
-	"github.com/apache/dubbo-go/common/logger"
+	dubboCommon "github.com/apache/dubbo-go/common"
+
 	dubboConfig "github.com/apache/dubbo-go/config"
+	"github.com/dapr/dapr/pkg/logger"
 )
+
 const (
 	consulProtocol = "consul"
 	nacosProtocol  = "nacos"
@@ -26,17 +27,19 @@ type ConsumerConfigAPIBean struct {
 	Inited         bool
 	once           sync.Once
 	rawData        bool
+	logger         logger.Logger
 }
 
 func Key(interfaceName, version, group string) string {
 	return group + "/" + interfaceName + ":" + version
 }
 
-func NewConsumerConfigAPIBean(ctx context.Context) *ConsumerConfigAPIBean {
+func NewConsumerConfigAPIBean(logger logger.Logger) *ConsumerConfigAPIBean {
 	return &ConsumerConfigAPIBean{
 		ReferenceConfig: *dubboConfig.NewReferenceConfigByAPI(),
 		Inited:          false,
 		rawData:         false,
+		logger:          logger,
 	}
 }
 
@@ -62,7 +65,7 @@ func (ccb *ConsumerConfigAPIBean) WithGeneric() *ConsumerConfigAPIBean {
 	return ccb
 }
 func (ccb *ConsumerConfigAPIBean) WithProxy() *ConsumerConfigAPIBean {
-	ccb.proxyService = NewProxyService(ccb.GetKey())
+	ccb.proxyService = NewProxyService(ccb.GetKey(), ccb.logger)
 	dubboConfig.SetConsumerService(ccb.proxyService)
 	ccb.Proxy = true
 	return ccb
@@ -105,30 +108,29 @@ func (ccb *ConsumerConfigAPIBean) WithRawData() *ConsumerConfigAPIBean {
 	return ccb
 }
 
-func (ddc *ConsumerConfigAPIBean) GetKey() string {
-	return Key(ddc.InterfaceName, ddc.Version, ddc.Group)
+func (ccb *ConsumerConfigAPIBean) GetKey() string {
+	return Key(ccb.InterfaceName, ccb.Version, ccb.Group)
 }
 
-func (ddc *ConsumerConfigAPIBean) GetProxyService() *ProxyService {
-	return ddc.proxyService
+func (ccb *ConsumerConfigAPIBean) GetProxyService() *ProxyService {
+	return ccb.proxyService
 }
 
-func (ddc *ConsumerConfigAPIBean) Init() {
-	if ddc.Inited {
+func (ccb *ConsumerConfigAPIBean) Init() {
+	if ccb.Inited {
 		return
 	}
-	// 这里目前一定要comment，不然hsf会使用dubbo的registry，感觉hsf的又问题
 	configConsumer()
-	ddc.once.Do(func() {
-		logger.Debugf("start to init DUBBOApiConsumerBean of service: %s\n", ddc.GetKey())
-		ddc.Refer(ddc.genericService)
-		if ddc.genericService != nil {
-			ddc.Implement(ddc.genericService)
+	ccb.once.Do(func() {
+		ccb.logger.Debugf("start to init DUBBOApiConsumerBean of service: %s\n", ccb.GetKey())
+		ccb.Refer(ccb.genericService)
+		if ccb.genericService != nil {
+			ccb.Implement(ccb.genericService)
 		}
-		if ddc.Proxy && ddc.proxyService != nil {
-			ddc.proxyService.SetInvoker(ddc.GetProxy().GetInvoker())
+		if ccb.Proxy && ccb.proxyService != nil {
+			ccb.proxyService.SetInvoker(ccb.GetProxy().GetInvoker())
 		}
-		ddc.Inited = true
+		ccb.Inited = true
 	})
 }
 
@@ -136,7 +138,7 @@ func configConsumer() {
 	var check = true
 	consumerConfig := dubboConfig.ConsumerConfig{
 		BaseConfig: dubboConfig.BaseConfig{
-			ApplicationConfig:  &dubboConfig.ApplicationConfig{},
+			ApplicationConfig: &dubboConfig.ApplicationConfig{},
 		},
 		ConnectTimeout: 3 * time.Second,
 		RequestTimeout: 3 * time.Second,
@@ -146,8 +148,6 @@ func configConsumer() {
 	}
 	dubboConfig.SetConsumerConfig(consumerConfig)
 }
-
-
 
 func configZKRegister() *dubboConfig.RegistryConfig {
 	return &dubboConfig.RegistryConfig{

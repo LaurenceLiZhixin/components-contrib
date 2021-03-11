@@ -1,19 +1,15 @@
 package dubbo
 
 import (
-	"context"
 	"sync"
 
 	dubboConstant "github.com/apache/dubbo-go/common/constant"
 
-	"github.com/dapr/components-contrib/bindings/alicloud/dubbo/logger"
-
-	"github.com/dapr/components-contrib/bindings"
-	"github.com/dapr/components-contrib/bindings/alicloud/dubbo/constants"
+	"github.com/dapr/dapr/pkg/logger"
 
 	"strings"
 
-	failback "github.com/dapr/components-contrib/bindings/alicloud/dubbo/failback"
+	"github.com/dapr/components-contrib/bindings"
 )
 
 const (
@@ -23,6 +19,7 @@ const (
 
 var dubboSubscriber *DUBBOSubscriber
 
+// DUBBOSubscriber is an impl of oubput binding, it can get init consumer side invoker to rpcServices, and do
 type DUBBOSubscriber struct {
 	timeout       int64
 	interfaceName string
@@ -31,8 +28,10 @@ type DUBBOSubscriber struct {
 	rpcServices   map[string]*ConsumerConfigAPIBean
 	registerLock  sync.Mutex
 	logger        logger.Logger
+	metadata      bindings.Metadata
 }
 
+// NewDUBBOSubscriber return new dubbo subscriber with @logger
 func NewDUBBOSubscriber(logger logger.Logger) *DUBBOSubscriber {
 	dubboSubscriber = &DUBBOSubscriber{
 		registerLock: sync.Mutex{},
@@ -42,17 +41,21 @@ func NewDUBBOSubscriber(logger logger.Logger) *DUBBOSubscriber {
 	return dubboSubscriber
 }
 
+// Init init dubbo subscriber from dapr @metadata
 func (ds *DUBBOSubscriber) Init(metadata bindings.Metadata) error {
-	for _, item := range failback.FailBackState(product, action) {
+	for _, item := range FailBackState(product, action) {
 		if len(item) == 0 {
 			continue
 		}
 		interfaceName, version, group := recoverKey(item)
 		ds.appendGenericAndProxyService(interfaceName, version, group, false)
 	}
+	ds.metadata = metadata
 	return nil
 }
 
+// getProxyService get rpc service from cache by @interfaceName, @version and @group
+// if not exist, it will try to refere
 func (ds *DUBBOSubscriber) getProxyService(interfaceName, version, group string) *ProxyService {
 	key := key(interfaceName, version, group)
 	rpcService := ds.rpcServices[key]
@@ -63,6 +66,7 @@ func (ds *DUBBOSubscriber) getProxyService(interfaceName, version, group string)
 	return rpcService.GetProxyService()
 }
 
+// appendGenericAndProxyService try to new dubbo consumer reference from given @interfaceName, @version and @group
 func (ds *DUBBOSubscriber) appendGenericAndProxyService(interfaceName, version, group string, stateUpdate bool) {
 	if len(interfaceName) == 0 {
 		ds.logger.Info("appaendGenericService with empty interfaceName")
@@ -79,7 +83,7 @@ func (ds *DUBBOSubscriber) appendGenericAndProxyService(interfaceName, version, 
 	}
 
 	params := make(map[string]string)
-	consumerConfigAPI := NewConsumerConfigAPIBean(context.Background()).
+	consumerConfigAPI := NewConsumerConfigAPIBean(ds.logger).
 		WithInterfaceName(interfaceName).
 		WithGroup(group).
 		WithVersion(version).
@@ -93,12 +97,13 @@ func (ds *DUBBOSubscriber) appendGenericAndProxyService(interfaceName, version, 
 	consumerConfigAPI.Init()
 
 	if stateUpdate && len(interfaceName) != 0 {
-		failback.StoreState(product, action, k)
+		StoreState(product, action, k)
 	}
 
 	ds.rpcServices[k] = consumerConfigAPI
 }
 
+// recoverKey get interfaceName, version and group from @item
 func recoverKey(item string) (string, string, string) {
 	if len(item) == 0 {
 		return "", "", ""
@@ -111,19 +116,22 @@ func recoverKey(item string) (string, string, string) {
 	return interfaceName, version, group
 }
 
+// key get unique service key from @interfaceName @version and group
 func key(interfaceName, version, group string) string {
 	return group + "/" + interfaceName + ":" + version
 }
 
 // The key named `_serialize` of InvokeRequest.Metadata means that it is have been serialized
+// Invoke do subscribe to dubbo service
 func (ds *DUBBOSubscriber) Invoke(req *bindings.InvokeRequest) (*bindings.InvokeResponse, error) {
-	interfaceName := req.Metadata[constants.MetadataRpcInterface]
-	version := req.Metadata[constants.MetadataRpcVersion]
-	group := req.Metadata[constants.MetadataRpcGroup]
+	interfaceName := req.Metadata[MetadataRpcInterface]
+	version := req.Metadata[MetadataRpcVersion]
+	group := req.Metadata[MetadataRpcGroup]
 	ds.appendGenericAndProxyService(interfaceName, version, group, true)
 	return nil, nil
 }
 
+// Operations return kind list with CreateOperation
 func (ds *DUBBOSubscriber) Operations() []bindings.OperationKind {
 	return []bindings.OperationKind{bindings.CreateOperation}
 }

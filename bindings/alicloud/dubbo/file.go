@@ -1,4 +1,4 @@
-package failback
+package dubbo
 
 import (
 	"bufio"
@@ -10,9 +10,9 @@ import (
 
 const BaseStoreLocation = "/dapr" + string(filepath.Separator) + "logs"
 
+// FailBackState get items form target file
 func FailBackState(prod string, action string) []string {
 	filePath := getFilePath(prod, action, false)
-
 	file, err := os.Open(filePath)
 	if err != nil {
 		fmt.Println("open the file error：", err)
@@ -36,7 +36,7 @@ func FailBackState(prod string, action string) []string {
 	return result
 }
 
-
+// StoreState store @item to target file path, path is calculated by @prod and @action
 func StoreState(prod string, action string, item string) {
 	filePath := getFilePath(prod, action, true)
 
@@ -49,6 +49,7 @@ func StoreState(prod string, action string, item string) {
 	}
 }
 
+// getFilePath get target file path
 func getFilePath(prod string, action string, createDirectory bool) string {
 	if createDirectory {
 		path := "" + string(filepath.Separator) + prod + string(filepath.Separator) + "SNAPSHOT"
@@ -62,7 +63,7 @@ func getFilePath(prod string, action string, createDirectory bool) string {
 		string(filepath.Separator) + action
 }
 
-// 判断所给路径是否为文件夹
+// judge if target path is directory
 func IsDir(path string) bool {
 	s, err := os.Stat(path)
 	if err != nil {
